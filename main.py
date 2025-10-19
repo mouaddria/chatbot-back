@@ -4,6 +4,7 @@ import re
 import base64
 from io import BytesIO
 from typing import List
+from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,10 +25,13 @@ DEFAULT_OAI_MODEL = "gpt-4o"
 # --- FastAPI app ---
 app = FastAPI(title="Car Analyzer API")
 
-# CORS: allow only your Vercel frontend
+# CORS: allow only your Vercel frontend and localhost for testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://chatbot-front-three.vercel.app/"],
+    allow_origins=[
+        "https://front-chatbot-tau.vercel.app",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,20 +99,23 @@ def _safe_json_loads(text: str):
 # --- OpenAI call ---
 def call_openai_car(prompt: str, images: List[Image.Image], condition: str = "used",
                     model: str = DEFAULT_OAI_MODEL, temperature: float = 0.0, max_tokens: int = 800):
-    user_content = [{"type": "text", "text": f"{prompt}\n\nUser_condition: {condition}\n\n{CAR_JSON_INSTRUCTIONS}"}]
-    user_content += to_image_content(images)
-    
-    resp = client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": CAR_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-    )
-    return _safe_json_loads(resp.choices[0].message.content)
+    try:
+        user_content = [{"type": "text", "text": f"{prompt}\n\nUser_condition: {condition}\n\n{CAR_JSON_INSTRUCTIONS}"}]
+        user_content += to_image_content(images)
+
+        resp = client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": CAR_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        return _safe_json_loads(resp.choices[0].message.content)
+    except Exception as e:
+        return {"error": f"OpenAI call failed: {str(e)}"}
 
 # --- Routes ---
 @app.get("/health")
@@ -123,7 +130,17 @@ async def analyze_car(
     files: List[UploadFile] = File(...),
 ):
     try:
-        pils = [Image.open(BytesIO(await f.read())).convert("RGB") for f in files]
+        if not files:
+            return JSONResponse({"error": "No files uploaded"}, status_code=400)
+
+        pils = []
+        for f in files:
+            try:
+                img = Image.open(BytesIO(await f.read())).convert("RGB")
+                pils.append(img)
+            except Exception as e:
+                return JSONResponse({"error": f"Failed to read image {f.filename}: {str(e)}"}, status_code=400)
+
         result = call_openai_car(prompt=prompt, images=pils, condition=condition, model=model)
         result.setdefault("condition", condition)
         return JSONResponse(result)
