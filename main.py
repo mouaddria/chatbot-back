@@ -28,14 +28,12 @@ app = FastAPI(title="Car Analyzer API")
 # CORS: allow only your Vercel frontend and localhost for testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://front-chatbot-tau.vercel.app",
-        "http://localhost:3000"
-    ],
+    allow_origins=["*"],  # ⚠️ Only for testing! Not secure in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # --- Prompts ---
 CAR_SYSTEM_PROMPT = (
@@ -146,3 +144,4 @@ async def analyze_car(
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
